@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { flushSync } from 'react-dom'
 
+// Interfaces and TOPIC_OPTIONS remain the same...
 interface Episode {
   id: string;
   title: string;
@@ -25,27 +27,45 @@ interface CreateEpisodeFormProps {
 }
 
 const TOPIC_OPTIONS = [
-  'Technology',
-  'Science',
-  'Politics',
-  'Business',
-  'Health',
-  'Sports',
-  'Entertainment',
-  'World News',
+  'Technology', 'Science', 'Politics', 'Business', 'Health', 'Sports', 'Entertainment', 'World News',
 ]
+
+function getStageMessage(stage: string): string {
+  switch (stage) {
+    case 'Starting...':
+    case 'discovering_articles':
+    case 'pending':
+      return 'Leafing through the newspapers...'
+    case 'extracting_content':
+      return 'Picking your favourite articles...'
+    case 'generating_script':
+      return 'Writing the perfect script...'
+    case 'generating_audio':
+      return 'Recording the podcast in the studio...'
+    case 'generating_timestamps':
+    case 'uploading_files':
+    case 'finalizing':
+      return 'Sending it over to you...'
+    case 'completed':
+      return 'Ready to listen!'
+    default:
+      return 'Leafing through the newspapers...'
+  }
+}
 
 export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) {
   const [selectedTopics, setSelectedTopics] = useState<string[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [stageMessage, setStageMessage] = useState<string>('')
+  
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const completedRef = useRef(false)
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
       }
     }
   }, [])
@@ -68,6 +88,8 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
 
     setIsGenerating(true)
     setError(null)
+    setStageMessage('Leafing through the newspapers...')
+    completedRef.current = false
 
     try {
       const request: CreateEpisodeRequest = {
@@ -77,9 +99,7 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
 
       const response = await fetch('/api/episodes', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
       })
 
@@ -89,65 +109,107 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
 
       const { episode_id } = await response.json()
       
-      // Poll for episode completion with proper cleanup
-      let retryCount = 0
-      const maxRetries = 150 // 5 minutes max (150 * 2 seconds)
+      const eventSource = new EventSource(`http://localhost:8000/episodes/${episode_id}/events`)
+      eventSourceRef.current = eventSource
       
-      const pollForCompletion = async () => {
+      console.log('🔌 SSE connection opened for episode:', episode_id)
+      
+      eventSource.onopen = () => {
+        console.log('✅ SSE connection established')
+      }
+      
+      eventSource.onmessage = (event) => {
+        console.log('📨 SSE message received:', event.data)
+
         try {
-          if (retryCount >= maxRetries) {
-            setError('Episode generation timed out. Please try again.')
-            setIsGenerating(false)
-            timeoutRef.current = null
-            return
+          const statusData = JSON.parse(event.data)
+          
+          // ✨ FIX #2: Use flushSync to force immediate React updates
+          // This bypasses React 18's automatic batching for SSE updates
+          if (statusData.stage) {
+            console.log('🔄 Updating stage to:', statusData.stage)
+            const newMessage = getStageMessage(statusData.stage)
+            console.log('📝 Setting stage message to:', newMessage)
+            flushSync(() => {
+              setStageMessage(newMessage)
+            })
+            console.log('✅ Stage message updated')
+          }
+          
+          if (statusData.status === 'completed') {
+            completedRef.current = true
+            flushSync(() => {
+              setStageMessage('Ready to listen!')
+            })
+            
+            fetch(`/api/episodes/${episode_id}`)
+              .then(res => res.json())
+              .then((episode: Episode) => {
+                onEpisodeCreated(episode)
+                setIsGenerating(false)
+                if (eventSourceRef.current) {
+                  eventSourceRef.current.close()
+                  eventSourceRef.current = null
+                }
+              })
+              .catch((err) => {
+                setError('Episode completed but failed to load details')
+                setIsGenerating(false)
+                if (eventSourceRef.current) {
+                  eventSourceRef.current.close()
+                  eventSourceRef.current = null
+                }
+              })
+
+          } else if (statusData.status === 'failed') {
+            flushSync(() => {
+              setError(statusData.error || 'Failed to generate podcast. Please try again.')
+              setIsGenerating(false)
+            })
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close()
+              eventSourceRef.current = null
+            }
           }
 
-          const episodeResponse = await fetch(`/api/episodes/${episode_id}`)
-          
-          if (!episodeResponse.ok) {
-            throw new Error(`HTTP ${episodeResponse.status}: ${episodeResponse.statusText}`)
-          }
-          
-          const episode: Episode = await episodeResponse.json()
-          
-          console.log(`Poll attempt ${retryCount + 1}/${maxRetries}: Episode status is "${episode.status}"`);
-          
-          if (episode.status === 'completed') {
-            console.log('Episode generation completed successfully')
-            onEpisodeCreated(episode)
-            setIsGenerating(false)
-            timeoutRef.current = null
-          } else if (episode.status === 'failed') {
-            console.log('Episode generation failed')
-            setError('Failed to generate podcast. Please try again.')
-            setIsGenerating(false)
-            timeoutRef.current = null
-          } else {
-            // Episode is still pending or processing
-            retryCount++
-            
-            // Add warning for episodes stuck too long in pending status
-            if (episode.status === 'pending' && retryCount > 30) { // After 1 minute
-              console.warn(`Episode has been pending for ${retryCount * 2} seconds. This may indicate a backend processing issue.`)
-            }
-            
-            timeoutRef.current = setTimeout(pollForCompletion, 2000)
-          }
-        } catch (error) {
-          console.error('Failed to check episode status:', error)
-          setError(`Failed to check episode status: ${error instanceof Error ? error.message : 'Unknown error'}`)
-          setIsGenerating(false)
-          timeoutRef.current = null
+        } catch (err) {
+          flushSync(() => {
+            setError('Received invalid status update')
+          })
         }
       }
       
-      timeoutRef.current = setTimeout(pollForCompletion, 1000)
+      // Handle SSE connection errors (but only show error if not completed)
+      eventSource.onerror = (error) => {
+        // Don't log error if episode completed successfully (connection closed normally)
+        if (!completedRef.current) {
+          console.log('❌ SSE connection error:', error)
+          setTimeout(() => {
+            if (!completedRef.current) {
+              setError('Lost connection to server. Please refresh and try again.')
+              setIsGenerating(false)
+            }
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close()
+              eventSourceRef.current = null
+            }
+          }, 100)
+        } else {
+          // Episode completed, connection closed normally
+          if (eventSourceRef.current) {
+            eventSourceRef.current.close()
+            eventSourceRef.current = null
+          }
+        }
+      }
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
       setIsGenerating(false)
     }
   }
-
+  
+  // The JSX for the return statement remains identical to the previous answer.
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -189,6 +251,22 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
             <span className="text-sm text-gray-600">5 minutes (fixed for MVP)</span>
           </div>
         </div>
+
+        {isGenerating && (
+          <div className="p-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg text-center">
+            <div className="space-y-4">
+              <div className="animate-pulse">
+                <div className="w-8 h-8 bg-blue-600 rounded-full mx-auto mb-4 animate-bounce"></div>
+                <h3 className="text-lg font-semibold text-blue-900 mb-2">Creating Your Podcast...</h3>
+                <div key={stageMessage} className="transition-all duration-1000 ease-in-out animate-fade-in">
+                  <p className="text-blue-700 text-base font-medium">
+                    {stageMessage}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-lg">

@@ -82,7 +82,7 @@ class LLMService:
         ])
         
         return f"""
-        Create a {duration_minutes}-minute podcast script from these news summaries. The script should:
+        Create a {duration_minutes}-minute podcast script from these news articles. The script should:
         
         1. Be approximately {target_words} words (targeting 160 words per minute)
         2. Flow as a single narrative voice (no intro/outro music needed)
@@ -126,7 +126,7 @@ class LLMService:
         script_preview = " ".join([p["text"] for p in script.paragraphs])[:500]
         
         prompt = f"""
-        Generate a compelling 5-minute podcast episode title based on these topics and script preview.
+        Generate a compelling podcast episode title based on these topics and script preview.
         
         Topics: {topics_text}
         
