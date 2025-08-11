@@ -1,0 +1,15 @@
+app = "yourcast-worker"
+primary_region = "dfw"
+
+[build]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 2048
+
+[env]
+  WORKER_TYPE = "agent"
+
+[processes]
+  worker = "python worker.py"
