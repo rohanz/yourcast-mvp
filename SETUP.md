@@ -8,11 +8,13 @@
 
 ## Required API Keys
 
-You'll need to obtain these API keys:
+You'll need to obtain these API keys and credentials:
 
-1. **NewsAPI Key**: Get from [newsapi.org](https://newsapi.org/register)
-2. **Gemini API Key**: Get from [Google AI Studio](https://aistudio.google.com/app/apikey) (free!)
-3. **Google TTS API Key**: Get from [Google Cloud Console](https://console.cloud.google.com/) (see setup below)
+1. **Google Cloud Service Account**: For AI services (Gemini LLM + Text Embeddings) - **REQUIRED**
+2. **Gemini API Key**: Alternative to service account for Gemini only - Get from [Google AI Studio](https://aistudio.google.com/app/apikey)
+3. **NewsAPI Key**: Optional legacy support - Get from [newsapi.org](https://newsapi.org/register)
+
+**Note**: The system now uses RSS feeds as the primary news source with AI-powered clustering, making NewsAPI optional.
 
 ## Local Development Setup
 
@@ -41,27 +43,66 @@ uv sync
 cd ../..
 ```
 
-### 2. Google Cloud TTS API Key Setup
+### 2. Google Cloud Service Account Setup
 
-**Simple API key setup:**
+**For AI services (Gemini LLM + Text Embeddings):**
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or select existing one)
-3. Enable the Text-to-Speech API:
+1. **Create a Google Cloud Project**:
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select existing one
+   - Note your project ID
+
+2. **Enable Required APIs**:
    - Go to APIs & Services → Library
-   - Search for "Text-to-Speech API"
-   - Click Enable
-4. Create an API key:
-   - Go to APIs & Services → Credentials
-   - Click "Create Credentials" → API Key
-   - Copy your API key (starts with `AIzaSy...`)
-   - (Optional) Restrict the key to Text-to-Speech API only
+   - Enable these APIs:
+     - **Generative Language API** (for Gemini)
+     - **Generative AI API** (for embeddings)
+   
+3. **Create a Service Account**:
+   - Go to IAM & Admin → Service Accounts
+   - Click "Create Service Account"
+   - Name: `yourcast-ai-service`
+   - Role: **Generative AI Administrator** (or Viewer for read-only)
+   
+4. **Download Service Account Key**:
+   - Click on your service account
+   - Go to "Keys" tab
+   - Click "Add Key" → "Create new key" → JSON
+   - Download the JSON file to your project directory
+   - **Important**: Keep this file secure and add to `.gitignore`
+
+**Alternative - Gemini API Key Only** (simpler but limited):
+- Get a free API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+- This works for Gemini but not for text embeddings
 
 ### 3. Database Setup
 
-The app uses SQLite by default, so no database setup is required! The database file (`yourcast.db`) will be created automatically when you first run the API.
+**PostgreSQL with pgvector (Recommended for RSS clustering)**:
 
-**Storage**: Audio files, transcripts, and VTT files are stored locally in a `./storage` directory.
+1. **Install PostgreSQL + pgvector**:
+   ```bash
+   # macOS with Homebrew
+   brew install postgresql pgvector
+   brew services start postgresql
+   ```
+
+2. **Create database and user**:
+   ```bash
+   # Connect as superuser
+   psql postgres
+   
+   # Create user and database
+   CREATE USER yourcast_user WITH PASSWORD 'yourcast_password';
+   CREATE DATABASE yourcast_db OWNER yourcast_user;
+   \c yourcast_db
+   CREATE EXTENSION vector;
+   \q
+   ```
+
+**SQLite (Fallback)**:
+For basic functionality without RSS clustering, SQLite works automatically.
+
+**Storage**: Audio files, transcripts, and VTT files are stored locally in `./storage` directory.
 
 ### 4. Environment Variables
 
@@ -72,19 +113,36 @@ cp apps/api/.env.example apps/api/.env
 cp workers/agent/.env.example workers/agent/.env
 ```
 
-Edit the `.env` files with your actual API keys:
-- `NEWS_API_KEY`: Your NewsAPI key
-- `GEMINI_API_KEY`: Your Gemini API key (from Google AI Studio)
-- `GOOGLE_TTS_API_KEY`: Your Google Cloud TTS API key
+**Required Variables:**
 
-**Example:**
+**For PostgreSQL + RSS Clustering:**
 ```bash
-NEWS_API_KEY=1a2b3c4d5e6f7g8h9i0j
-GEMINI_API_KEY=AIzaSyDhYmP4uM8cB9fG7kL3nQ2rS5tU6vW8xY1z
-GOOGLE_TTS_API_KEY=AIzaSyBcDeFgHiJkLmNoPqRsTuVwXyZ123456789
+# Database (PostgreSQL recommended)
+DATABASE_URL=postgresql://yourcast_user:yourcast_password@localhost:5432/yourcast_db
+
+# Google Cloud AI (Service Account)
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_LOCATION=us-central1  
+GOOGLE_APPLICATION_CREDENTIALS=./path/to/service-account.json
+
+# Alternative: Gemini API Key only (limited functionality)
+# GEMINI_API_KEY=your_gemini_api_key
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# Storage
+STORAGE_DIR=../../shared/storage
+
+# Optional: Legacy News API
+NEWS_API_KEY=your_news_api_key
 ```
 
-The database and storage paths can be left as defaults for local development.
+**Important Notes:**
+- Use **either** the service account JSON file **OR** the Gemini API key
+- Service account provides full functionality (Gemini + embeddings)
+- API key only works for Gemini, not embeddings
+- RSS feeds are the primary news source, NewsAPI is optional
 
 ### 5. Start Development Services
 

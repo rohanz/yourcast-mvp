@@ -21,6 +21,23 @@ port_in_use() {
 }
 
 echo -e "${BLUE}Checking prerequisites...${NC}"
+
+# Check PostgreSQL connectivity
+echo -e "${BLUE}Checking PostgreSQL connection...${NC}"
+if command_exists pg_isready; then
+    if pg_isready -h localhost -p 5432 > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ PostgreSQL is running and accessible${NC}"
+    else
+        echo -e "${RED}PostgreSQL is not running or not accessible${NC}"
+        echo -e "${YELLOW}To start PostgreSQL: brew services start postgresql${NC}"
+        echo -e "${YELLOW}Or install PostgreSQL: brew install postgresql pgvector${NC}"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}⚠ PostgreSQL tools not found - RSS clustering may not work${NC}"
+    echo -e "${YELLOW}Install with: brew install postgresql pgvector${NC}"
+fi
+
 # Check if Redis Docker container is running
 if ! docker ps --format "table {{.Names}}" | grep -q "^redis$"; then
     echo -e "${YELLOW}Starting Redis Docker container...${NC}"
@@ -94,6 +111,11 @@ uv run celery -A agent.celery_app worker --loglevel=info > ../../logs/celery-wor
 CELERY_WORKER_PID=$!
 echo -e "${GREEN}✓ Celery worker started (PID: $CELERY_WORKER_PID)${NC}"
 
+# Start Celery Beat scheduler for RSS polling and redirect output to log file
+uv run celery -A agent.celery_app beat --loglevel=info > ../../logs/celery-beat.log 2>&1 &
+CELERY_BEAT_PID=$!
+echo -e "${GREEN}✓ Celery Beat scheduler started (PID: $CELERY_BEAT_PID)${NC}"
+
 # Go back to root and start web app
 cd ../..
 echo -e "${BLUE}Starting Next.js web app...${NC}"
@@ -116,6 +138,7 @@ cd ../..
 echo "$API_PID" > .api.pid
 echo "$REDIS_WORKER_PID" > .redis-worker.pid
 echo "$CELERY_WORKER_PID" > .celery-worker.pid
+echo "$CELERY_BEAT_PID" > .celery-beat.pid
 echo "$WEB_PID" > .web.pid
 
 # Wait for services to start
@@ -133,6 +156,7 @@ echo -e "${BLUE}Logs:${NC}"
 echo -e "  • API: ${YELLOW}tail -f logs/api.log${NC}"
 echo -e "  • Redis Worker: ${YELLOW}tail -f logs/redis-worker.log${NC}"
 echo -e "  • Celery Worker: ${YELLOW}tail -f logs/celery-worker.log${NC}"
+echo -e "  • Celery Beat (RSS): ${YELLOW}tail -f logs/celery-beat.log${NC}"
 echo -e "  • Web: ${YELLOW}tail -f logs/web.log${NC}"
 echo ""
 echo -e "${BLUE}To stop all services:${NC} ${YELLOW}./stop.sh${NC}"

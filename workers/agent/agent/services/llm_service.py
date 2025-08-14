@@ -154,3 +154,12 @@ class LLMService:
         source_titles = [s["title"] for s in sources[:3]]  # Top 3 sources
         
         return f"A 5-minute news update covering: {', '.join(source_titles)}. Generated from the latest articles and delivered in an easy-to-listen format."
+    
+    def generate_text(self, prompt: str) -> str:
+        """Generate text response for clustering and categorization tasks"""
+        try:
+            response = self.model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            logger.error(f"Failed to generate text with Gemini: {str(e)}")
+            raise

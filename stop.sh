@@ -40,6 +40,7 @@ kill_process() {
 kill_process ".api.pid" "API server"
 kill_process ".redis-worker.pid" "Redis worker"
 kill_process ".celery-worker.pid" "Celery worker"
+kill_process ".celery-beat.pid" "Celery Beat scheduler"
 kill_process ".web.pid" "Web app"
 
 # Also try to kill any remaining processes on the ports

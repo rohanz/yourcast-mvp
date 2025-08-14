@@ -6,6 +6,9 @@ from agent.celery_app import app
 from agent.pipeline.podcast_generator import PodcastGenerator
 from agent.services.episode_service import EpisodeService
 
+# Import RSS tasks
+from agent.tasks.rss_tasks import discover_rss_articles, get_recent_clusters, manual_rss_discovery
+
 logger = logging.getLogger(__name__)
 
 @app.task(bind=True)

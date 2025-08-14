@@ -45,6 +45,7 @@ uv.lock
 .env.local
 .env.production.local
 .env.development.local
+vertex-embeddings-prod-sa.json
 
 # Database
 *.db

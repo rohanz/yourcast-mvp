@@ -84,15 +84,67 @@ lsof -i :8000  # API server
 
 # Check Redis (Docker)
 docker exec redis redis-cli ping
+
+# Check PostgreSQL
+psql yourcast_db -c "SELECT COUNT(*) FROM articles;"
+```
+
+## RSS Discovery Testing
+
+The system now features an advanced RSS discovery and clustering pipeline. Use these commands to test it:
+
+### Basic RSS Discovery Test
+```bash
+cd workers/agent
+# Run small discovery test (5 feeds, 3 articles each)
+uv run test_small_discovery.py
+```
+
+### Debug Mode with LLM Response Logging
+```bash
+# Enable debug logging to see AI clustering decisions
+uv run test_small_discovery_debug.py
+```
+
+### Manual RSS Testing
+```bash
+# Test specific RSS feeds
+uv run test_manual_rss.py
+```
+
+### Clear Database
+```bash
+# Clear all articles and clusters (useful for testing)
+uv run clear_database.py
+```
+
+### Database Inspection
+```bash
+# Connect to PostgreSQL database
+psql yourcast_db
+
+# View recent articles with clustering info
+SELECT title, source_name, subcategory, tags, created_at 
+FROM articles 
+ORDER BY created_at DESC 
+LIMIT 10;
+
+# View story clusters
+SELECT cluster_id, canonical_title, 
+       (SELECT COUNT(*) FROM articles WHERE cluster_id = sc.cluster_id) as article_count
+FROM story_clusters sc 
+ORDER BY created_at DESC;
 ```
 
 ## Prerequisites
 
 - **Node.js** (for Next.js web app)
-- **Python 3.8+** (for API server and worker)
+- **Python 3.11+** (for API server and worker)
+- **PostgreSQL 14+** with **pgvector extension** (for RSS clustering)
 - **uv** (Python package manager)
 - **Docker** (for Redis container)
 - **Redis Docker image** (for job queue and SSE state)
+- **Google Cloud service account** (for AI services)
 
 ## Troubleshooting
 
@@ -113,6 +165,21 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 
 # Check if it's running
 docker exec redis redis-cli ping
+```
+
+### PostgreSQL Not Running
+```bash
+# Check if PostgreSQL is running
+brew services list | grep postgresql
+
+# Start PostgreSQL service
+brew services start postgresql
+
+# Stop PostgreSQL service (if needed)
+brew services stop postgresql
+
+# Test connection
+psql yourcast_db -c "SELECT COUNT(*) FROM articles;"
 ```
 
 ### Dependencies Issues
