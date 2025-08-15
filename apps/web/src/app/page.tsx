@@ -9,7 +9,7 @@ interface Episode {
   title: string;
   description?: string;
   duration_seconds: number;
-  topics: string[];
+  categories: string[];
   status: string;
   audio_url?: string;
   transcript_url?: string;
@@ -27,7 +27,7 @@ export default function Home() {
           Create Your Micro-Podcast
         </h2>
         <p className="text-gray-600 max-w-2xl mx-auto">
-          Select 1-3 topics and we'll generate a 5-minute podcast from the latest news articles.
+          Select 1-3 news categories and we'll generate a 5-minute podcast from the most important articles.
         </p>
       </div>
       

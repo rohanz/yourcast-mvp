@@ -3,13 +3,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { flushSync } from 'react-dom'
 
-// Interfaces and TOPIC_OPTIONS remain the same...
 interface Episode {
   id: string;
   title: string;
   description?: string;
   duration_seconds: number;
-  topics: string[];
+  categories: string[];
   status: string;
   audio_url?: string;
   transcript_url?: string;
@@ -18,7 +17,7 @@ interface Episode {
 }
 
 interface CreateEpisodeRequest {
-  topics: string[];
+  subcategories: string[];
   duration_minutes: number;
 }
 
@@ -26,9 +25,21 @@ interface CreateEpisodeFormProps {
   onEpisodeCreated: (episode: Episode) => void
 }
 
-const TOPIC_OPTIONS = [
-  'Technology', 'Science', 'Politics', 'Business', 'Health', 'Sports', 'Entertainment', 'World News',
-]
+interface Category {
+  category: string;
+  subcategories: Subcategory[];
+  total_articles: number;
+  avg_importance: number;
+  max_importance: number;
+}
+
+interface Subcategory {
+  subcategory: string;
+  article_count: number;
+  avg_importance: number;
+  max_importance: number;
+  latest_article: string | null;
+}
 
 function getStageMessage(stage: string): string {
   switch (stage) {
@@ -54,13 +65,34 @@ function getStageMessage(stage: string): string {
 }
 
 export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) {
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([])
+  const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stageMessage, setStageMessage] = useState<string>('')
   
   const eventSourceRef = useRef<EventSource | null>(null)
   const completedRef = useRef(false)
+
+  // Fetch categories on mount
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await fetch('/api/categories')
+        if (!response.ok) {
+          throw new Error('Failed to fetch categories')
+        }
+        const data = await response.json()
+        setCategories(data.categories || [])
+      } catch (err) {
+        setError('Failed to load categories. Please refresh the page.')
+      } finally {
+        setIsLoadingCategories(false)
+      }
+    }
+    fetchCategories()
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -70,19 +102,58 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
     }
   }, [])
 
-  const toggleTopic = (topic: string) => {
-    if (selectedTopics.includes(topic)) {
-      setSelectedTopics(selectedTopics.filter(t => t !== topic))
-    } else if (selectedTopics.length < 3) {
-      setSelectedTopics([...selectedTopics, topic])
+  // Helper function to get subcategories for a category
+  const getSubcategoriesForCategory = (categoryName: string): string[] => {
+    const category = categories.find(cat => cat.category === categoryName)
+    return category ? category.subcategories.map(sub => sub.subcategory) : []
+  }
+
+  // Check if all subcategories of a category are selected
+  const isCategoryFullySelected = (categoryName: string): boolean => {
+    const subcats = getSubcategoriesForCategory(categoryName)
+    return subcats.length > 0 && subcats.every(sub => selectedSubcategories.includes(sub))
+  }
+
+  // Get total selection count for limit checking
+  const getTotalSelectionCount = () => {
+    return selectedSubcategories.length
+  }
+
+  const toggleCategory = (categoryName: string) => {
+    const subcats = getSubcategoriesForCategory(categoryName)
+    const isFullySelected = isCategoryFullySelected(categoryName)
+    
+    if (isFullySelected) {
+      // Deselect all subcategories of this category
+      setSelectedSubcategories(selectedSubcategories.filter(sub => !subcats.includes(sub)))
+    } else {
+      // Select all subcategories of this category (if we have room)
+      const newSelections = subcats.filter(sub => !selectedSubcategories.includes(sub))
+      const wouldExceedLimit = selectedSubcategories.length + newSelections.length > 10
+      
+      if (!wouldExceedLimit) {
+        setSelectedSubcategories([...selectedSubcategories, ...newSelections])
+      }
+    }
+  }
+
+  const toggleSubcategory = (subcategoryName: string) => {
+    if (selectedSubcategories.includes(subcategoryName)) {
+      // Deselect the subcategory
+      setSelectedSubcategories(selectedSubcategories.filter(sub => sub !== subcategoryName))
+    } else {
+      if (selectedSubcategories.length < 10) { // Allow up to 10 subcategories
+        // Select the subcategory
+        setSelectedSubcategories([...selectedSubcategories, subcategoryName])
+      }
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (selectedTopics.length === 0) {
-      setError('Please select at least one topic')
+    if (selectedSubcategories.length === 0) {
+      setError('Please select at least one subcategory')
       return
     }
 
@@ -93,7 +164,7 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
 
     try {
       const request: CreateEpisodeRequest = {
-        topics: selectedTopics,
+        subcategories: selectedSubcategories,
         duration_minutes: 5
       }
 
@@ -209,38 +280,133 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
     }
   }
   
-  // The JSX for the return statement remains identical to the previous answer.
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-3">
-            Select Topics (1-3)
+            Select Categories or Subcategories (up to 10)
           </label>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {TOPIC_OPTIONS.map((topic) => (
-              <button
-                key={topic}
-                type="button"
-                onClick={() => toggleTopic(topic)}
-                className={`p-3 rounded-lg border text-sm font-medium transition-colors ${
-                  selectedTopics.includes(topic)
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
-                } ${
-                  !selectedTopics.includes(topic) && selectedTopics.length >= 3
-                    ? 'opacity-50 cursor-not-allowed'
-                    : 'cursor-pointer'
-                }`}
-                disabled={!selectedTopics.includes(topic) && selectedTopics.length >= 3}
-              >
-                {topic}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Selected: {selectedTopics.length}/3
+          <p className="text-xs text-gray-600 mb-4">
+            Click category headers to select all subcategories, or choose individual subcategories.
           </p>
+          
+          {isLoadingCategories ? (
+            <div className="space-y-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="border rounded-lg p-4 animate-pulse">
+                  <div className="h-4 bg-gray-200 rounded mb-3 w-1/3"></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[...Array(4)].map((_, j) => (
+                      <div key={j} className="h-8 bg-gray-200 rounded"></div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : categories.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500 mb-2">No categories available</p>
+              <p className="text-sm text-gray-400">Try running RSS discovery to populate articles</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {categories.map((category) => {
+                const categoryFullySelected = isCategoryFullySelected(category.category)
+                const hasSelectedSubcats = category.subcategories.some(sub => 
+                  selectedSubcategories.includes(sub.subcategory)
+                )
+                
+                return (
+                  <div key={category.category} className="border rounded-lg p-4">
+                    {/* Category Header Button */}
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(category.category)}
+                      className={`w-full p-3 rounded-lg border text-sm font-medium transition-colors text-left mb-3 ${
+                        categoryFullySelected
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : hasSelectedSubcats
+                          ? 'bg-orange-100 text-orange-800 border-orange-300'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-semibold mb-1">📁 {category.category}</div>
+                          <div className={`text-xs ${
+                            categoryFullySelected ? 'text-blue-200' 
+                            : hasSelectedSubcats ? 'text-orange-600' 
+                            : 'text-gray-500'
+                          }`}>
+                            {category.total_articles} articles • ⭐ {category.avg_importance.toFixed(1)}
+                          </div>
+                        </div>
+                        {categoryFullySelected && (
+                          <div className="text-blue-200 text-xs">✓ All Selected</div>
+                        )}
+                        {hasSelectedSubcats && !categoryFullySelected && (
+                          <div className="text-orange-600 text-xs">Some Selected</div>
+                        )}
+                      </div>
+                    </button>
+                    
+                    {/* Subcategories Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {category.subcategories.map((subcategory) => {
+                        const subcatSelected = selectedSubcategories.includes(subcategory.subcategory)
+                        
+                        return (
+                          <button
+                            key={subcategory.subcategory}
+                            type="button"
+                            onClick={() => toggleSubcategory(subcategory.subcategory)}
+                            className={`p-2 rounded border text-xs font-medium transition-colors text-left ${
+                              subcatSelected
+                                ? 'bg-green-500 text-white border-green-500'
+                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                            } ${
+                              !subcatSelected && getTotalSelectionCount() >= 10
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'cursor-pointer'
+                            }`}
+                            disabled={!subcatSelected && getTotalSelectionCount() >= 10}
+                          >
+                            <div className="font-medium">{subcategory.subcategory}</div>
+                            <div className={`text-xs mt-1 ${
+                              subcatSelected ? 'text-green-200' : 'text-gray-500'
+                            }`}>
+                              {subcategory.article_count} • ⭐{subcategory.avg_importance.toFixed(1)}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          
+          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">
+                Selected: {getTotalSelectionCount()}/10 subcategories
+              </span>
+              <span className="text-gray-600">
+                {getTotalSelectionCount() === 0 ? 'None selected' : 'Ready to generate podcast'}
+              </span>
+            </div>
+            {selectedSubcategories.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {selectedSubcategories.map(sub => (
+                  <span key={sub} className="inline-flex items-center px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                    {sub}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div>
@@ -276,7 +442,7 @@ export function CreateEpisodeForm({ onEpisodeCreated }: CreateEpisodeFormProps) 
 
         <button
           type="submit"
-          disabled={selectedTopics.length === 0 || isGenerating}
+          disabled={selectedSubcategories.length === 0 || isGenerating}
           className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
         >
           {isGenerating ? 'Generating Podcast...' : 'Generate Podcast'}

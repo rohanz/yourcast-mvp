@@ -16,8 +16,28 @@ from app.schemas import (
 from app.services.episode_service import EpisodeService
 import json
 import asyncio
+import sys
+import os
+
+# Add the agent directory to Python path for smart article service
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../../workers/agent'))
+from agent.services.smart_article_service import SmartArticleService
 
 router = APIRouter()
+
+@router.get("/categories")
+def get_available_categories():
+    """Get available categories and subcategories with article counts and importance stats"""
+    try:
+        service = SmartArticleService()
+        categories = service.get_available_categories()
+        
+        return {
+            "categories": categories,
+            "total_categories": len(categories)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch categories: {str(e)}")
 
 @router.post("", response_model=CreateEpisodeResponse)
 def create_episode(
@@ -30,7 +50,7 @@ def create_episode(
         id=episode_id,
         title="Generating...",
         description="Your micro-podcast is being generated",
-        topics=request.topics,
+        subcategories=request.subcategories,
         status="pending"
     )
     
@@ -39,7 +59,7 @@ def create_episode(
     
     # Queue episode generation job
     episode_service = EpisodeService()
-    episode_service.queue_episode_generation(episode_id, request.topics, request.duration_minutes)
+    episode_service.queue_episode_generation(episode_id, request.subcategories, request.duration_minutes)
     
     return CreateEpisodeResponse(episode_id=episode_id, status="pending")
 
@@ -97,33 +117,66 @@ def get_episode_sources(episode_id: str, db: Session = Depends(get_db)):
 
 @router.get("/{episode_id}/events")
 async def get_episode_events(episode_id: str):
-    """Server-Sent Events endpoint for episode status updates"""
+    """Server-Sent Events endpoint for episode status updates using Redis pub/sub"""
+    import redis.asyncio as aioredis
+    from app.config import settings
     
     async def event_generator():
-        episode_service = EpisodeService()
+        redis_client = None
+        pubsub = None
         
-        while True:
-            try:
-                # Check episode status
-                event = episode_service.get_episode_status_event(episode_id)
+        try:
+            # Connect to Redis
+            redis_client = aioredis.from_url(settings.redis_url)
+            pubsub = redis_client.pubsub()
+            
+            # Subscribe to episode-specific channel
+            channel = f"episode_status:{episode_id}"
+            await pubsub.subscribe(channel)
+            
+            # Send initial status if available
+            episode_service = EpisodeService()
+            initial_event = episode_service.get_episode_status_event(episode_id)
+            if initial_event:
+                yield f"data: {json.dumps(initial_event.dict())}\n\n"
                 
-                if event:
-                    yield f"data: {json.dumps(event.dict())}\n\n"
-                    
-                    # Stop streaming if episode is completed or failed
-                    if event.status in ["completed", "failed"]:
-                        break
+                # If already completed, don't wait for more updates
+                if initial_event.status in ["completed", "failed"]:
+                    return
+            
+            # Listen for real-time updates
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    try:
+                        # Parse the status update
+                        status_data = json.loads(message["data"])
+                        event = EpisodeStatusEvent(**status_data)
                         
-                await asyncio.sleep(2)  # Poll every 2 seconds
-                
-            except Exception as e:
-                error_event = EpisodeStatusEvent(
-                    episode_id=episode_id,
-                    status="error",
-                    error=str(e)
-                )
-                yield f"data: {json.dumps(error_event.dict())}\n\n"
-                break
+                        yield f"data: {json.dumps(event.dict())}\n\n"
+                        
+                        # Stop streaming if episode is completed or failed
+                        if event.status in ["completed", "failed"]:
+                            break
+                            
+                    except (json.JSONDecodeError, ValueError) as e:
+                        # Skip invalid messages
+                        continue
+                        
+        except Exception as e:
+            error_event = EpisodeStatusEvent(
+                episode_id=episode_id,
+                status="error",
+                error=str(e)
+            )
+            yield f"data: {json.dumps(error_event.dict())}\n\n"
+            
+        finally:
+            # Clean up Redis connections
+            if pubsub:
+                await pubsub.unsubscribe()
+                await pubsub.close()
+            if redis_client:
+                await redis_client.close()
     
     return StreamingResponse(
         event_generator(),
@@ -133,3 +186,4 @@ async def get_episode_events(episode_id: str):
             "Connection": "keep-alive",
         }
     )
+

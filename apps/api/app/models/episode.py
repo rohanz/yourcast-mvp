@@ -11,7 +11,7 @@ class Episode(Base):
     title = Column(String, nullable=False)
     description = Column(Text)
     duration_seconds = Column(Integer, default=0)
-    topics = Column(JSON, nullable=False)
+    subcategories = Column(JSON, nullable=False)
     status = Column(String, default="pending")  # pending, processing, completed, failed
     audio_url = Column(String)
     transcript_url = Column(String)

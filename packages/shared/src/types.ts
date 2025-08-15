@@ -11,7 +11,7 @@ export interface Episode {
   title: string;
   description: string;
   duration_seconds: number;
-  topics: string[];
+  subcategories: string[];
   status: 'pending' | 'processing' | 'completed' | 'failed';
   audio_url?: string;
   transcript_url?: string;
@@ -41,7 +41,7 @@ export interface Source {
 }
 
 export interface CreateEpisodeRequest {
-  topics: string[];
+  subcategories: string[];
   duration_minutes: number;
 }
 

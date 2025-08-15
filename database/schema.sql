@@ -19,7 +19,7 @@ CREATE TABLE episodes (
     title VARCHAR(500) NOT NULL,
     description TEXT,
     duration_seconds INTEGER DEFAULT 0,
-    topics JSONB NOT NULL,
+    subcategories JSONB NOT NULL,
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
     audio_url TEXT,
     transcript_url TEXT,
@@ -92,7 +92,7 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
 -- Create a bucket called 'podcasts' with public read access
 
 -- Sample data for testing
-INSERT INTO episodes (id, title, description, topics, status) VALUES 
+INSERT INTO episodes (id, title, description, subcategories, status) VALUES
 (
     uuid_generate_v4(),
     'Tech News Update - AI Developments',
@@ -104,5 +104,5 @@ INSERT INTO episodes (id, title, description, topics, status) VALUES
 COMMENT ON TABLE episodes IS 'Stores podcast episode metadata and status';
 COMMENT ON TABLE sources IS 'News articles used to generate podcast episodes';
 COMMENT ON TABLE episode_segments IS 'Timestamped segments for chapter navigation';
-COMMENT ON COLUMN episodes.topics IS 'JSON array of topic strings';
+COMMENT ON COLUMN episodes.subcategories IS 'JSON array of subcategory strings';
 COMMENT ON COLUMN episodes.status IS 'Current generation status of the episode';

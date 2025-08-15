@@ -8,11 +8,11 @@ class EpisodeService:
     def __init__(self):
         self.redis_client = redis.from_url(settings.redis_url)
     
-    def queue_episode_generation(self, episode_id: str, topics: List[str], duration_minutes: int):
+    def queue_episode_generation(self, episode_id: str, subcategories: List[str], duration_minutes: int):
         """Queue episode generation job"""
         job_data = {
             "episode_id": episode_id,
-            "topics": topics,
+            "subcategories": subcategories,
             "duration_minutes": duration_minutes
         }
         
@@ -23,17 +23,29 @@ class EpisodeService:
         self.set_episode_status(episode_id, "processing", stage="queued")
     
     def set_episode_status(self, episode_id: str, status: str, stage: Optional[str] = None, progress: Optional[int] = None, error: Optional[str] = None):
-        """Update episode status in Redis"""
+        """Update episode status in Redis and publish to SSE subscribers"""
+        from datetime import datetime
+        
         status_data = {
             "episode_id": episode_id,
             "status": status,
             "stage": stage,
             "progress": progress,
-            "error": error
+            "error": error,
+            "timestamp": datetime.now().isoformat()
         }
         
+        # Store status in Redis with expiration
         key = f"episode_status:{episode_id}"
         self.redis_client.setex(key, 3600, json.dumps(status_data))  # Expire in 1 hour
+        
+        # Publish to pub/sub channel for real-time SSE updates
+        channel = f"episode_status:{episode_id}"
+        try:
+            self.redis_client.publish(channel, json.dumps(status_data))
+        except Exception:
+            # Silently ignore pub/sub errors to not affect main functionality
+            pass
     
     def get_episode_status_event(self, episode_id: str) -> Optional[EpisodeStatusEvent]:
         """Get current episode status"""

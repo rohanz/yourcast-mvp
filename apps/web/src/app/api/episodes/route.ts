@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 interface CreateEpisodeRequest {
-  topics: string[];
+  subcategories: string[];
   duration_minutes: number;
 }
 

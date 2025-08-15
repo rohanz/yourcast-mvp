@@ -3,7 +3,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 class CreateEpisodeRequest(BaseModel):
-    topics: List[str]
+    subcategories: List[str]
     duration_minutes: int
 
 class CreateEpisodeResponse(BaseModel):
@@ -28,7 +28,7 @@ class EpisodeSchema(BaseModel):
     title: str
     description: Optional[str]
     duration_seconds: int
-    topics: List[str]
+    subcategories: List[str]
     status: str
     audio_url: Optional[str]
     transcript_url: Optional[str]
