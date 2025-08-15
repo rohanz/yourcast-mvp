@@ -281,6 +281,7 @@ INSTRUCTIONS:
 3. Don't cluster if articles are just in the same category but about different events
 4. The article is from a {feed_category} feed, so assign an appropriate subcategory from: {subcategories_str}
 5. Generate 2-4 relevant tags that capture key entities, topics, or themes
+6. Generate an importance_score from 1-10, where 1=minor/trivial, 5=moderate interest, 10=breaking/major newswaa
 
 EXAMPLES:
 {examples}
@@ -291,8 +292,9 @@ Respond with JSON only:
     "cluster_id": "cluster_id_to_join" or null,
     "reason": "brief explanation",
     "category": "{feed_category}",
-    "subcategory": "choose from: {subcategories_str}", 
-    "tags": ["tag1", "tag2", "tag3"]
+    "subcategory": "choose from available options above", 
+    "tags": ["tag1", "tag2", "tag3"],
+    "importance_score": "1-10"
 }}"""
         
         return prompt
@@ -497,6 +499,17 @@ Decision:
                 else:
                     decision['action'] = 'create_new'
             
+            # Parse importance_score if it's a string
+            if 'importance_score' in decision:
+                importance_str = str(decision['importance_score'])
+                # Extract first digit if it's a string like "8 (high importance)"
+                import re
+                match = re.search(r'(\d+)', importance_str)
+                if match:
+                    decision['importance_score'] = int(match.group(1))
+                else:
+                    decision['importance_score'] = 5  # Default
+            
             return decision
             
         except Exception as e:
@@ -539,14 +552,16 @@ Decision:
             # self.db.add(new_cluster)
             
             # Placeholder implementation
+            importance_score = decision.get('importance_score', 5)  # Default to 5 if not provided
             self.db.execute(
                 text("""
-                    INSERT INTO story_clusters (cluster_id, canonical_title, created_at)
-                    VALUES (:cluster_id, :canonical_title, :created_at)
+                    INSERT INTO story_clusters (cluster_id, canonical_title, importance_score, created_at)
+                    VALUES (:cluster_id, :canonical_title, :importance_score, :created_at)
                 """),
                 {
                     "cluster_id": cluster_id,
                     "canonical_title": canonical_title,
+                    "importance_score": importance_score,
                     "created_at": datetime.now(timezone.utc)
                 }
             )

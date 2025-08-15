@@ -26,6 +26,7 @@ class Settings:
     # API Keys
     gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     news_api_key = os.getenv("NEWS_API_KEY", "")  # Optional - RSS feeds are primary
+    google_tts_api_key = os.getenv("GOOGLE_TTS_API_KEY", "")
     
     # Local storage directory for files - use shared directory
     storage_dir = os.getenv("STORAGE_DIR", "../../shared/storage")

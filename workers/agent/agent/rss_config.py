@@ -31,7 +31,7 @@ RSS_FEEDS_CONFIG = {
     },
     
     "Business": {
-        "subcategories": ["Markets", "Corporations & earnings", "Startups & Entrepreneurship", "Economy and Policy"],
+        "subcategories": ["Markets", "Corporations & Earnings", "Startups & Entrepreneurship", "Economy and Policy"],
         "feeds": [
             "https://finance.yahoo.com/news/rssindex",
             "https://feeds.bbci.co.uk/news/business/rss.xml",

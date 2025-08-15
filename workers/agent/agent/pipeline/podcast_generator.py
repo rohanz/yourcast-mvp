@@ -1,7 +1,7 @@
 import logging
 import uuid
 from typing import List, Dict, Any
-from agent.services.news_service import NewsService
+from agent.services.smart_article_service import SmartArticleService
 from agent.services.llm_service import LLMService
 from agent.services.tts_service import TTSService
 from agent.services.transcript_service import TranscriptService
@@ -13,28 +13,34 @@ logger = logging.getLogger(__name__)
 class PodcastGenerator:
     def __init__(self, episode_service: EpisodeService):
         self.episode_service = episode_service
-        self.news_service = NewsService()
+        self.smart_article_service = SmartArticleService()
         self.llm_service = LLMService()
         self.tts_service = TTSService()
         self.transcript_service = TranscriptService()
         self.storage_service = StorageService()
     
-    def generate_episode(self, episode_id: str, topics: List[str], duration_minutes: int):
+    def generate_episode(self, episode_id: str, subcategories: List[str], duration_minutes: int):
         """Execute the full podcast generation pipeline"""
         try:
             # Stage 1: Discover articles
             self.episode_service.set_episode_status(
                 episode_id, "processing", stage="discovering_articles", progress=10
             )
-            articles = self.news_service.discover_articles(topics, limit=5)
+            # Use smart article service to get articles from our clustered database
+            # Get articles filtered purely by the user's selected subcategories
+            articles = self.smart_article_service.get_articles_by_subcategories(
+                selected_subcategories=subcategories,
+                total_articles=8,  # More articles for better content variety
+                min_importance_score=4  # Minimum quality threshold
+            )
             logger.info(f"Found {len(articles)} articles for episode {episode_id}")
             
-            # Stage 2: Extract and store article content
+            # Stage 2: Convert articles to sources format expected by LLM service
             self.episode_service.set_episode_status(
                 episode_id, "processing", stage="extracting_content", progress=20
             )
-            sources = self.news_service.extract_article_content(articles)
-            self.episode_service.store_sources(episode_id, sources)
+            sources = self._convert_articles_to_sources(articles)
+            article_to_source_map = self.episode_service.store_sources(episode_id, sources)
             
             # Stage 3: Generate script
             self.episode_service.set_episode_status(
@@ -72,7 +78,7 @@ class PodcastGenerator:
             )
             
             # Generate title and description from script
-            title = self.llm_service.generate_title(topics, script)
+            title = self.llm_service.generate_title(subcategories, script)
             description = self.llm_service.generate_description(sources, script)
             
             # Update episode in database
@@ -88,7 +94,7 @@ class PodcastGenerator:
             )
             
             # Store episode segments for chapter navigation
-            self.episode_service.store_episode_segments(episode_id, transcript_data)
+            self.episode_service.store_episode_segments(episode_id, transcript_data, article_to_source_map)
             
             # Final status update
             self.episode_service.set_episode_status(
@@ -103,3 +109,31 @@ class PodcastGenerator:
                 episode_id, "failed", error=str(e)
             )
             raise
+    
+    def _convert_articles_to_sources(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert smart article service format to sources format expected by LLM service"""
+        sources = []
+        
+        for article in articles:
+            # Create source in the format expected by LLM service
+            source = {
+                "id": article.get("article_id", str(uuid.uuid4())),
+                "title": article.get("title", ""),
+                "url": article.get("url", ""),
+                "published_date": article.get("publication_timestamp", ""),
+                "excerpt": article.get("summary", "")[:200] + "..." if len(article.get("summary", "")) > 200 else article.get("summary", ""),
+                "full_text": article.get("summary", ""),  # Use summary as full text for now
+                "source_name": article.get("source_name", "Unknown"),
+                "summary": article.get("summary", ""),
+                # Additional metadata from our smart system
+                "category": article.get("category", ""),
+                "subcategory": article.get("subcategory", ""),
+                "importance_score": article.get("importance_score", 5),
+                "story_title": article.get("story_title", ""),
+                "cluster_id": article.get("cluster_id", ""),
+                "tags": article.get("tags", [])
+            }
+            sources.append(source)
+            
+        logger.info(f"Converted {len(sources)} articles to sources format")
+        return sources
